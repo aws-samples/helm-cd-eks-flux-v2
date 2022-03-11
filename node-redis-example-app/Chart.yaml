@@ -1,0 +1,5 @@
+apiVersion: v2
+appVersion: 0.0.1
+description: A surprise to catch something speedy.
+name: node-redis-example-app
+version: 0.1.0

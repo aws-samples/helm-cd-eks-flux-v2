@@ -1,0 +1,13 @@
+apiVersion: v1
+entries:
+  node-redis-example-app:
+  - apiVersion: v2
+    appVersion: 0.0.1
+    created: "2021-08-21T01:02:32.572967+05:30"
+    description: A surprise to catch something speedy.
+    digest: 69634cdf74122fe0455591e40af2684a9e8f251770b3a26ebe717a3333c34fde
+    name: node-redis-example-app
+    urls:
+    - https://github.com/$USER/app-helm-charts/blob/main/node-redis-example-app-0.1.0.tgz
+    version: 0.1.0
+generated: "2021-08-21T01:02:32.571721+05:30"

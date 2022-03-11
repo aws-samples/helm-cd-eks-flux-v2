@@ -1,0 +1,5 @@
+.idea/
+**/node_modules
+backup
+**/package-lock.json
+**/cdk.out/

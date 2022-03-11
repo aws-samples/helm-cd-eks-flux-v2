@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webservice
+  labels:
+    application: node-redis-example-3
+    component: webservice
+spec:
+  selector:
+    matchLabels:
+      application: node-redis-example-3
+      component: webservice
+  replicas: 2
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        application: node-redis-example-3
+        component: webservice
+        redeploy: '1'
+    spec:
+      containers:
+      - name: webservice
+        image: ramak2/noderedisexample3:latest
+        env:
+        - name: REDIS_URL
+          value: "http://redis-master.testredis.svc.cluster.local:6379"
+        ports:
+        - name: webservice
+          containerPort: 3000
+          protocol: TCP
+
+
