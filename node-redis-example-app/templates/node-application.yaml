@@ -25,7 +25,7 @@ spec:
     spec:
       containers:
       - name: webservice
-        image: ramak2/noderedisexample3:latest
+        image: tuser123/noderedisexample3:latest
         env:
         - name: REDIS_URL
           value: "http://redis-master.testredis.svc.cluster.local:6379"

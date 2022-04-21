@@ -18,10 +18,11 @@ Updates published to the application’s Helm chart are continuously synced by F
 ```
 
 # Pre-reqs
-* Install kubectl, iam_authenticator
+* Install kubectl, iam_authenticator, eksctl
 * HTTPS Git credentials for CodeCommit
 * Install helm v3
-* Github account
+* GitHub account
+* DockerHub account
 
 # Product Versions
 * Helm V3
@@ -30,32 +31,35 @@ Updates published to the application’s Helm chart are continuously synced by F
 * EKS V1.21
 * NodeJS V1.17
 * Docker V1.21
-* ECR V1.21
 
 # 1. Create EKS cluster; Create CodeCommit repository for FluxCD config
   ```shell
   # Use region us-west-2
   aws configure --profile default
       
-  # Create EKS cluster
-      
-  # Install kubectl, iam_authenticator, 
+  # Install kubectl, eksctl, iam_authenticator   
+  # Create EKS cluster using either EKSCTL or CDK
+  # eksctl 
+  eksctl create cluster --name fluxcluster1 --version=1.21 --nodegroup-name=standard-workers --node-type=t3.medium --nodes=1 --nodes-min=1 --nodes-max=2  --node-ami=auto --managed=false --region=us-west-2
+  # CDK
   cd eks-cluster-cdk
   npm i
   cdk deploy
       
-  # Create a CodeCommit repository = helmcd-flux-config-repo
-  aws codecommit create-repository --repository-name helmcd-flux-config-repo --profile default
-      
-  # https://git-codecommit.us-west-2.amazonaws.com/v1/repos/helmcd-flux-config-repo
+  # Create a CodeCommit repository to store the FluxCD configuration for the EKS cluster
+  aws codecommit create-repository --repository-name fluxcluster1-flux-config-repo --profile default
+  # This will create a codecommit repository at    
+  # https://git-codecommit.us-west-2.amazonaws.com/v1/repos/fluxcluster1-flux-config-repo
+  
+  # From the AWS Console for CodeCommit, create and download HTTP Git credentials for the codecommit repository 
   ```
 
-# 2. Install FluxCD CLI, deploy FluxCD on EKS cluster
+# 2. Install FluxCD CLI on your local workstation; Using the FluxCD CLI, deploy FluxCD controllers on EKS cluster
 * #### 2.1 Install Flux CLI
     ```shell script
-    brew install flux
+    brew install fluxcd/tap/flux
     ```
-
+  
 * #### 2.2 Check pre-requisites on EKS cluster
     ```shell script
     flux check --pre
@@ -66,13 +70,16 @@ Updates published to the application’s Helm chart are continuously synced by F
     # This step is called bootstrapping the EKS cluster with FluxCD configuration. 
     # This step will first write the FluxCD config files to the CodeCommit repo. 
     # Then the FluxCD configuration is installed on the EKS cluster in the namespace flux-system. 
+  
+    # Replace username, password values below with the HTTP Git credentials for codecommit repository
     flux bootstrap git \
-      --url=https://git-codecommit.us-west-2.amazonaws.com/v1/repos/helmcd-flux-config-repo \
-      --username=Admin-at-8732 \
-      --password=1/Lypk1BKAxhsvGNvmzelDc= \
+      --url=https://git-codecommit.us-west-2.amazonaws.com/v1/repos/fluxcluster1-flux-config-repo \
+      --username=user-37732 \
+      --password=VZ8w/mhWf2= \
       --token-auth=true \
-      --path=clusters/helmcd-cluster
+      --path=clusters/fluxcluster1
     ```
+
 
 * #### 2.4 Verify FluxCD pods are running
     ```
@@ -97,47 +104,52 @@ Updates published to the application’s Helm chart are continuously synced by F
     git push -u origin gh-pages
     ```
 
-# 4. Create and upload Helm Chart to the Helm Chart repository
+# 4. Create and upload Helm chart to the Helm chart repository
 
 * #### 4.1 Build and push image to dockerhub
     ```shell script
     cd nodejs-webservice
     npm i
     docker build -t ${username}/testnodeapp:v1 .
+  
+    # Login to DockerHub account 
     docker login
-    docker push
+  
+    # Push app image to dockerhub
+    docker push ${username}/testnodeapp:v1
     ```
 
 * #### 4.2 Create Helm chart for the application
     ```shell script
-    # Create Helm Chart
-    # helm create node-redis-example-app
+    # Create Helm Chart; this command will create a skeleton folder structure for the helm chart
+    # In the templates sub-folder, add k8s workload specs, update Chart.yaml
+    helm create node-redis-example-app
     
-    # Add templates, update Chart.yaml
+    # Package the helm chart; this command will create .tgz file containing a deployable helm chart
     helm package node-redis-example-app
-    mv node-redis-example-app-0.1.0.tgz ./app-helm-charts/
+    mv ./node-redis-example-app-1.0.0.tgz ./app-helm-charts/
     ```
 
 * #### 4.3 Upload Helm chart to Helm Repository
     ```shell script
       
-    # Generate index.yaml 
+    # Generate index.yaml; helm will update the local index.yaml file by scanning the folder for updates 
     helm repo index app-helm-charts/ --url https://$GITHUB_USER.github.io/app-helm-charts
   
-    # Commit and push index.yaml, packaged chart
+    # Push index.yaml, packaged chart to the Helm repository
     git commit -a -m "change index"
     git push origin
   
     # Verify the new index.yaml is being served from helm repo
-    curl https://gree-gorey.github.io/helm-example/index.yaml
+    curl https://$GITHUB_USER.github.io/app-helm-charts/index.yaml
     ```
 
-# 5. Configure FluxCD for continuous deployment of your Helm chart 
+# 5. Configure FluxCD for continuous deployment of your Helm chart
 
 * #### 5.1 Clone the CodeCommit repository to your local
     ```shell script
-    git clone https://git-codecommit.us-west-2.amazonaws.com/v1/repos/helmcd-flux-config-repo
-    cd helmcd-flux-config-repo
+    git clone https://git-codecommit.us-west-2.amazonaws.com/v1/repos/fluxcluster1-flux-config-repo
+    cd fluxcluster1-flux-config-repo
     ```
 
 * #### 5.2 Create K8S namespace into which the test application will be deployed
@@ -145,80 +157,82 @@ Updates published to the application’s Helm chart are continuously synced by F
     kubectl create namespace testns
     ```
 
-* #### 5.3 Create helm repo source CRD for the source repository
+* #### 5.3 Create HelmRepository resource which contains the url for Helm repo
     ```shell script
-    mkdir ./clusters/helmcd-cluster/app2
+    mkdir ./clusters/fluxcluster1/app2
   
-    flux create source helm my-app-charts \
-      --url=https://$GITHUB_USER.github.io/app-helm-charts \
+    flux create source helm testapp-helm-charts \
+      --url=https://$GITHUB_USER.github.io/testapp-helm-charts \
       --interval=1m \
-      --export > ./clusters/helmcd-cluster/app2/podinfo-helm-repo.yaml
+      --export > ./clusters/fluxcluster1/app2/nodewebservice-helm-repo.yaml
     ```
-      
-* #### 5.4 Create custom resource of type HelmRelease which describes the helm chart to monitor
+
+* #### 5.4 Create HelmRelease which contains the details about the Helm Chart to release, and the target namespace
     ```shell script
     flux create hr helm-podinfo \
       --interval=2m \
-      --source=HelmRepository/my-app-charts \
-      --chart=node-redis-example-app \
-      --chart-version=0.1.1 \
-      --target-namespace=testredis3-helm \
-      --export > ./clusters/helmcd-cluster/app2/podinfo-helm-chart.yaml
+      --source=HelmRepository/testapp-helm-charts \
+      --chart=testapp-helm-app \
+      --chart-version>=1.0.0 \
+      --target-namespace=testns \
+      --export > ./clusters/fluxcluster1/app2/nodewebservice-helm-chart.yaml
     ```
-  
+
 * #### 5.5 Commit and push flux config
     ```shell script
     git commit -m "adding helmrelease crd for my app"
     git push
   
-    #Watch for application pods deployment 
-    watch kubectl get pods --namespace testns
+    # Watch for application pods deployment 
+    kubectl get pods --namespace testns
     ```
 
 * #### 5.6 Verify V1 version of the application is deployed
     ```shell script
     # port forward to 3000 on nodejs webservice 
-    kubectl port-forward ${app-podname} -n testns 8081:3000
+    kubectl port-forward $APP_POD_NAME -n testns 8081:3000
     curl http://localhost:8081/hello
     ```
 
-# 6. Push a new revision of your Helm chart and verify continuous deployment 
+# 6. Push a new revision of your Helm chart and verify continuous deployment
 
 * #### 6.1 Update the app to change the hello message, build and push to docker
     ```shell script
-    docker build -t ${username}/testnodeapp:v2 .
-    docker push
+    # Changed the hello message of the app; build a new image
+    docker build -t ${username}/testnodeapp:v2
+    docker push 
     ```
-  
-* #### 6.2 Change template yaml, Chart.yaml in the local chart folder
+
+* #### 6.2 Change template yamls, Chart.yaml in the local chart folder
     ```shell script
-    docker build -t ${username}/testnodeapp:v1 .
+  # Update application manifest to use the new image
+  # Update Chart.yaml to update new version
     ```
 
 * #### 6.3 Package and build a new chart
     ```shell script
     helm package node-redis-example-app
-    mv node-redis-example-app-0.1.1.tgz ./app-helm-charts/
+    mv node-redis-example-app-1.0.1.tgz ./app-helm-charts/
     ```
-  
+
 * #### 6.4 Push new chart to the Helm repo
     ```shell script
-    # Generate index.yaml 
+    # Update index.yaml 
     helm repo index app-helm-charts/ --url https://$GITHUB_USER.github.io/app-helm-charts
       
     # Commit and push index.yaml, packaged chart
+    cd app-helm-charts
     git commit -a -m "change index"
     git push origin
       
     # Verify the new index.yaml is being served
-    curl https://gree-gorey.github.io/helm-example/index.yaml
+    curl https://$GITHUB_USER.github.io/app-helm-charts/index.yaml
   
-    #Watch for application pods deployment 
-    watch kubectl get pods --namespace testns
+    # Watch for application pods deployment 
+    kubectl get pods --namespace testns
     ```
 
 * #### 6.5 Verify V2 version of the application is deployed
     ```shell script
-    kubectl port-forward ${podname} -n testns 8081:3000
+    kubectl port-forward $APP_POD_NAME -n testns 8081:3000
     curl http://localhost:8081/hello
-    ```
